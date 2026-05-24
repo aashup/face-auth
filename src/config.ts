@@ -1,6 +1,114 @@
 import type { ModelManifest, ModelReader } from './secure/modelIntegrity';
 import type { Challenge } from './types';
 
+// ─── Model performance / threading ───────────────────────────────────────────
+
+/**
+ * Per-model CPU-thread budget and resize-buffer size.
+ *
+ * Thread counts are forwarded to `react-native-fast-tflite`'s XNNPACK delegate
+ * via `useTensorflowModel(path, 'xnnpack', { numThreads })` in the host app.
+ * Use the exported `resolvePerformance` helper to read the fully-resolved config
+ * and pass it to each `useTensorflowModel` call so there is a single source of
+ * truth for all threading decisions.
+ *
+ * `frameSize` controls the square resize-plugin output fed to every worklet
+ * frame.  Smaller buffers mean faster preprocessing; the minimum is 192 px
+ * (the FaceMesh input size).
+ */
+export interface ModelPerformanceConfig {
+  /**
+   * Global default thread count for every TFLite model (XNNPACK delegate).
+   * Individual model overrides take precedence when provided.
+   * Recommended: number of physical CPU cores, capped at 4 for thermal safety.
+   * Default 4.
+   */
+  numThreads: number;
+  /** Thread count for BlazeFace (small model; 2 is usually enough). Defaults to `numThreads`. */
+  blazefaceThreads?: number;
+  /** Thread count for FaceMesh (medium model). Defaults to `numThreads`. */
+  faceMeshThreads?: number;
+  /** Thread count for each MiniFASNet liveness branch (two models). Defaults to `numThreads`. */
+  livenessThreads?: number;
+  /** Thread count for FaceNet-512 (heaviest model). Defaults to `numThreads`. */
+  embeddingThreads?: number;
+  /**
+   * Square side (pixels) of the resize buffer produced by the resize plugin
+   * on every camera frame.  All model crops are sub-sampled from this buffer.
+   * Smaller = faster preprocessing and less memory per frame.
+   * Minimum 192 (= FaceMesh input resolution).  Default 256.
+   */
+  frameSize?: number;
+  /**
+   * Semaphore depth — how many camera frames may be simultaneously "in-flight"
+   * (worklet has delivered crop arrays but the JS Promise.all has not resolved).
+   *
+   * ┌──────────────────────────────────────────────────────────────────────────┐
+   * │  How the semaphore works                                                 │
+   * │                                                                          │
+   * │  availableSlots starts at maxConcurrentFrames (default 2).              │
+   * │                                                                          │
+   * │  On every incoming camera frame the worklet checks:                     │
+   * │    • availableSlots > 0  → decrement + process + deliver to JS          │
+   * │    • availableSlots == 0 → drop frame silently (all JS slots busy)      │
+   * │                                                                          │
+   * │  The JS deliver callback always increments availableSlots in finally{}  │
+   * │  so a slot is freed whether the frame succeeded or threw.               │
+   * │                                                                          │
+   * │  Pipeline overlap with maxConcurrentFrames = 2:                        │
+   * │                                                                          │
+   * │  frame N   worklet ──► deliver ─────────────► JS Promise.all           │
+   * │  frame N+1          worklet ──► deliver ─────────────► JS Promise.all  │
+   * │                                                                          │
+   * │  Both JS chains run concurrently on fast-tflite's native thread pool.  │
+   * │  Effective throughput ≈ 1 frame / max(worklet_ms, js_ms) instead of    │
+   * │  1 frame / (worklet_ms + js_ms) when the boolean isBusy serialised all │
+   * │  processing.                                                             │
+   * └──────────────────────────────────────────────────────────────────────────┘
+   *
+   * Rule of thumb: set to 2–3. Higher values queue stale frames and increase
+   * end-to-end latency without improving throughput.  Default 2.
+   */
+  maxConcurrentFrames?: number;
+}
+
+/** Fully-resolved performance defaults used when no override is provided. */
+export const DEFAULT_PERFORMANCE: Required<ModelPerformanceConfig> = {
+  numThreads:          4,
+  blazefaceThreads:    2,   // BlazeFace is small — 2 threads is optimal
+  faceMeshThreads:     2,   // FaceMesh is medium
+  livenessThreads:     4,   // MiniFASNet branches benefit most from parallelism
+  embeddingThreads:    4,   // FaceNet-512 is the heaviest model
+  frameSize:           256, // ≥ 192 (FaceMesh input); 256 is the sweet spot
+  maxConcurrentFrames: 2,   // pipeline overlap: worklet + JS run concurrently
+};
+
+/**
+ * Resolve a partial `ModelPerformanceConfig` into a fully-specified object.
+ * Per-model thread overrides fall back to `numThreads` when not set.
+ *
+ * @example
+ * // In the host app (before useTensorflowModel calls):
+ * const perf = resolvePerformance(FaceAuth.getConfig().performance);
+ * const spoof27 = useTensorflowModel(require('...spoof_2_7.tflite'), 'xnnpack',
+ *   { numThreads: perf.livenessThreads });
+ */
+export function resolvePerformance(
+  p?: ModelPerformanceConfig,
+): Required<ModelPerformanceConfig> {
+  if (!p) return DEFAULT_PERFORMANCE;
+  const base = p.numThreads ?? DEFAULT_PERFORMANCE.numThreads;
+  return {
+    numThreads:          base,
+    blazefaceThreads:    p.blazefaceThreads    ?? base,
+    faceMeshThreads:     p.faceMeshThreads     ?? base,
+    livenessThreads:     p.livenessThreads     ?? base,
+    embeddingThreads:    p.embeddingThreads    ?? base,
+    frameSize:           p.frameSize           ?? DEFAULT_PERFORMANCE.frameSize,
+    maxConcurrentFrames: p.maxConcurrentFrames ?? DEFAULT_PERFORMANCE.maxConcurrentFrames,
+  };
+}
+
 /**
  * Strategy used to collapse the M×K probe-vs-template score matrix into a
  * single confidence value during multi-frame matching.
@@ -131,6 +239,20 @@ export interface FaceAuthConfig {
    * net-watcher is not started.
    */
   awsSyncUrl?: string;
+  /**
+   * TFLite model inference thread counts and resize-buffer size.
+   *
+   * Pass `resolvePerformance(config.performance)` to each `useTensorflowModel`
+   * call in your host app so all threading decisions share a single source of
+   * truth.  The `frameSize` field is read automatically by `useFrameSource`.
+   *
+   * @example
+   * // At the top of App.tsx (before useTensorflowModel hooks):
+   * import { DEFAULT_PERFORMANCE } from 'react-native-offline-face-auth';
+   * // or after FaceAuth.init:
+   * // const perf = resolvePerformance(FaceAuth.getConfig().performance);
+   */
+  performance?: ModelPerformanceConfig;
   /**
    * Per-device bearer token issued during provisioning.
    * Required only when `awsSyncUrl` is provided.

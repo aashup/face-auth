@@ -15,6 +15,7 @@ import { useTensorflowModel } from 'react-native-fast-tflite';
 import {
   FaceAuth,
   FaceAuthView,
+  DEFAULT_PERFORMANCE,
   type AuthMode,
   type AuthResult,
   type FaceAuthModels,
@@ -71,11 +72,41 @@ export default function App() {
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   // ── Model loading ───────────────────────────────────────────────────────────
-  const blazeface = useTensorflowModel(require('./assets/models/blazeface.tflite'));
-  const faceMesh  = useTensorflowModel(require('./assets/models/face_mesh.tflite'));
-  const facenet   = useTensorflowModel(require('./assets/models/facenet_512.tflite'));
-  const spoof27   = useTensorflowModel(require('./assets/models/spoof_2_7.tflite'));
-  const spoof40   = useTensorflowModel(require('./assets/models/spoof_4_0.tflite'));
+  // Improvement 1: per-model XNNPACK thread counts from DEFAULT_PERFORMANCE.
+  // To override, pass a custom `performance` object to FaceAuth.init() and use
+  // resolvePerformance() here instead of DEFAULT_PERFORMANCE.
+  //
+  // Thread budget rationale (DEFAULT_PERFORMANCE):
+  //   blazeface / faceMesh  → 2 threads (small/medium model; XNNPACK overhead
+  //                           outweighs benefit beyond 2 on most devices)
+  //   liveness0 / liveness1 → 4 threads (MiniFASNet runs in parallel via JS
+  //                           Promise.all; each branch gets full thread budget)
+  //   facenet               → 4 threads (heaviest model — most gain from threads)
+  const blazeface = useTensorflowModel(
+    require('./assets/models/blazeface.tflite'),
+    'xnnpack',
+    { numThreads: DEFAULT_PERFORMANCE.blazefaceThreads },
+  );
+  const faceMesh  = useTensorflowModel(
+    require('./assets/models/face_mesh.tflite'),
+    'xnnpack',
+    { numThreads: DEFAULT_PERFORMANCE.faceMeshThreads },
+  );
+  const facenet   = useTensorflowModel(
+    require('./assets/models/facenet_512.tflite'),
+    'xnnpack',
+    { numThreads: DEFAULT_PERFORMANCE.embeddingThreads },
+  );
+  const spoof27   = useTensorflowModel(
+    require('./assets/models/spoof_2_7.tflite'),
+    'xnnpack',
+    { numThreads: DEFAULT_PERFORMANCE.livenessThreads },
+  );
+  const spoof40   = useTensorflowModel(
+    require('./assets/models/spoof_4_0.tflite'),
+    'xnnpack',
+    { numThreads: DEFAULT_PERFORMANCE.livenessThreads },
+  );
 
   const loaded = [blazeface, faceMesh, facenet, spoof27, spoof40].every(
     (m) => m.state === 'loaded',
@@ -92,6 +123,9 @@ export default function App() {
           // deviceToken: DEVICE_TOKEN,
           deviceId: 'demo-device-01',
           debug:    false,
+          // Thread counts must match what useTensorflowModel was called with above.
+          // Stored in config so useFrameSource can read frameSize automatically.
+          performance: DEFAULT_PERFORMANCE,
         });
         unsub = FaceAuth.onSyncStatus(setSync);
         setReady(true);

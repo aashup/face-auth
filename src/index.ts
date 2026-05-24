@@ -23,8 +23,8 @@ export type { FrameSourceModels, WorkletFrameResult } from './frameSource';
 export type { LivenessModels } from './liveness';
 export type { Template, MultiFrameTemplate, MultiFrameMatchConfig, FinalMatch } from './matcher';
 
-export type { FaceAuthConfig, Thresholds, FusionStrategy } from './config';
-export { DEFAULT_THRESHOLDS } from './config';
+export type { FaceAuthConfig, Thresholds, FusionStrategy, ModelPerformanceConfig } from './config';
+export { DEFAULT_THRESHOLDS, DEFAULT_PERFORMANCE, resolvePerformance } from './config';
 
 export type {
   AuthMode,

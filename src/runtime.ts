@@ -1,7 +1,10 @@
 import {
   DEFAULT_CONFIG,
+  DEFAULT_PERFORMANCE,
   resolveThresholds,
+  resolvePerformance,
   type FaceAuthConfig,
+  type ModelPerformanceConfig,
   type Thresholds,
 } from './config';
 import { setDebug } from './logger';
@@ -20,6 +23,8 @@ export interface ResolvedConfig {
   challengeTimeoutMs: number;
   templateTtlMs: number;
   debug: boolean;
+  /** Resolved model performance config (thread counts + frameSize). */
+  performance: Required<ModelPerformanceConfig>;
 }
 
 let current: ResolvedConfig | null = null;
@@ -37,6 +42,7 @@ export function setConfig(config: FaceAuthConfig): ResolvedConfig {
     challengeTimeoutMs: config.challengeTimeoutMs ?? DEFAULT_CONFIG.challengeTimeoutMs,
     templateTtlMs: config.templateTtlMs ?? DEFAULT_CONFIG.templateTtlMs,
     debug,
+    performance: resolvePerformance(config.performance),
   };
   return current;
 }

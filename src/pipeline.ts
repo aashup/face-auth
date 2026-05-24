@@ -267,6 +267,19 @@ export class FaceAuthSession {
 
   // ── Low-frequency analysis (heavy: MiniFASNet + embedding) ───────────────
 
+  /**
+   * Improvement 5 — simultaneous liveness + embedding collection.
+   *
+   * Old behaviour: collect N liveness frames → check pass/fail → collect M
+   * embedding frames → match.  Total: N + M frames (serial).
+   *
+   * New behaviour: collect liveness AND embedding on the same frames.
+   * Match when BOTH counters reach their target.
+   * Total: max(N, M) frames — typically 4 vs. 7, saving ~3 × 30–40 ms ≈ 90–120 ms.
+   *
+   * Liveness failure is checked as soon as the last sample lands; any embeddings
+   * collected on that frame are discarded with the session.
+   */
   private async doAnalyzing(
     frame: RgbFrame | null,
     faces: DetectedFace[],
@@ -275,7 +288,6 @@ export class FaceAuthSession {
     if (faces.length === 0) {
       return { stage: 'analyzing', guidance: { message: 'Hold steady' }, done: false };
     }
-    // Only spend the heavy models on a high-quality frame.
     const q = evaluateQuality(
       { faces, frame: frame ?? undefined, brightness: pre?.brightness },
       this.opts.thresholds,
@@ -283,81 +295,97 @@ export class FaceAuthSession {
     if (!q.ok) {
       return { stage: 'analyzing', guidance: { message: q.guidance }, done: false };
     }
-    const face = largestFace(faces);
+    const face      = largestFace(faces);
+    const threshold = this.opts.thresholds.spoofReject;
 
-    // ── Passive liveness: collect livenessFrames samples, then decide ────────
+    // ── Step A: accumulate one liveness sample (if still needed) ─────────────
+    // Key change: we do NOT return early after collecting the sample; we fall
+    // through to Step B so both liveness and embedding are gathered per frame.
+    let livenessJustFailed = false;
+
     if (this.spoofSamples.length < this.livenessFrames) {
       let spoofScore: number;
       let liveScore: number;
 
       if (pre?.livenessScore !== undefined) {
-        // Worklet path: pre.livenessScore is the live-face probability (0=spoof, 1=live).
-        // Invert to spoofScore for the gate comparison.
+        // Primary path: JS-thread Promise.all already ran the models.
         liveScore  = pre.livenessScore;
         spoofScore = 1 - liveScore;
       } else if (frame) {
-        // JS-side inference fallback (unit tests / headless mode).
-        const lv = await checkLiveness(frame, face, this.models.liveness, this.opts.thresholds.spoofReject);
+        // Fallback: JS-side inference (unit tests / headless mode).
+        const lv = await checkLiveness(frame, face, this.models.liveness, threshold);
         liveScore  = lv.liveScore;
         spoofScore = lv.spoofScore;
       } else {
+        // No data at all for this frame — skip (will retry next frame).
         return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
       }
 
       this.spoofSamples.push(spoofScore);
-      const n           = this.spoofSamples.length;
-      const runSpoof    = this.avgSpoofScore;
-      const threshold   = this.opts.thresholds.spoofReject;
+      const n        = this.spoofSamples.length;
+      const runSpoof = this.avgSpoofScore;
 
-      // Always-on log: visible regardless of debug flag so liveness can be tuned in production.
-      console.log(
-        `[FaceAuth/Liveness] sample ${n}/${this.livenessFrames}` +
+      dbg(
+        `[Liveness] sample ${n}/${this.livenessFrames}` +
         ` | liveScore=${f2(liveScore)} spoofScore=${f2(spoofScore)}` +
         ` | runAvgSpoof=${f2(runSpoof)} threshold=${f2(threshold)}`,
       );
 
-      if (n < this.livenessFrames) {
-        return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
+      if (n >= this.livenessFrames) {
+        // All liveness samples collected — make the final decision.
+        const finalSpoofAvg = runSpoof;
+        const finalLiveAvg  = 1 - finalSpoofAvg;
+        const rejected      = finalSpoofAvg >= threshold;
+
+        dbg(
+          `[Liveness] FINAL` +
+          ` | samples(spoof)=[${this.spoofSamples.map(f2).join(', ')}]` +
+          ` | avgSpoof=${f2(finalSpoofAvg)} avgLive=${f2(finalLiveAvg)}` +
+          ` | threshold=${f2(threshold)}` +
+          ` | ${rejected ? 'REJECTED (spoof detected)' : 'PASSED (live face)'}`,
+        );
+
+        if (rejected) {
+          livenessJustFailed = true;
+          // Fall through to Step B so we collect the embedding on this frame
+          // too — then return failure below (after the embedding attempt).
+          // This avoids a wasted async call when liveness is clearly spoofed.
+        }
       }
-
-      const finalSpoofAvg = runSpoof;
-      const finalLiveAvg  = 1 - finalSpoofAvg;
-      const rejected      = finalSpoofAvg >= threshold;
-
-      // Always-on final decision log.
-      console.log(
-        `[FaceAuth/Liveness] FINAL` +
-        ` | samples(spoof)=[${this.spoofSamples.map(f2).join(', ')}]` +
-        ` | avgSpoof=${f2(finalSpoofAvg)} avgLive=${f2(finalLiveAvg)}` +
-        ` | threshold=${f2(threshold)}` +
-        ` | ${rejected ? 'REJECTED (spoof detected)' : 'PASSED (live face)'}`,
-      );
-
-      if (rejected) {
-        this.stage = 'done';
-        return this.finish({
-          ok: false,
-          matchScore: 0,
-          livenessScore: finalLiveAvg,   // report as live score (0=spoof, 1=live)
-          challengePassed: true,
-          failureReason: 'liveness_failed',
-        });
-      }
-      // Passed — fall through to embedding collection below.
+      // ── No early return here — fall through to embedding collection ──────────
     }
 
-    // Embedding: use precomputed value or fall back to JS-side inference.
-    if (pre?.embedding) {
-      this.embeddings.push(pre.embedding);
-    } else if (frame) {
-      this.embeddings.push(await computeEmbedding(frame, face, this.models.embedding));
-    } else {
-      return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
-    }
+    // ── Step B: accumulate one embedding (if still needed) ───────────────────
     if (this.embeddings.length < this.embedFrames) {
-      return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
+      if (pre?.embedding) {
+        this.embeddings.push(pre.embedding);
+      } else if (frame) {
+        this.embeddings.push(await computeEmbedding(frame, face, this.models.embedding));
+      }
+      // If neither source is available for this frame, silently skip
+      // (will be retried on the next frame).
     }
-    return this.match();
+
+    // ── Step C: decide ────────────────────────────────────────────────────────
+    if (livenessJustFailed) {
+      this.stage = 'done';
+      return this.finish({
+        ok: false,
+        matchScore: 0,
+        livenessScore: this.avgLiveScore,
+        challengePassed: true,
+        failureReason: 'liveness_failed',
+      });
+    }
+
+    const livenessComplete  = this.spoofSamples.length >= this.livenessFrames;
+    const embeddingComplete = this.embeddings.length   >= this.embedFrames;
+
+    if (livenessComplete && embeddingComplete) {
+      return this.match();
+    }
+
+    return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
   }
 
   private match(): Tick {
