@@ -35,6 +35,9 @@ function buildProjection(key: string, outputDims: number, inputDims: number): In
   return m;
 }
 
+// Module-level single-entry cache. JS is single-threaded so there is no race,
+// but only one (key, outputDims, inputDims) triple is cached at a time.
+// Switching between different keys in a tight loop rebuilds the matrix on every call.
 let cachedKey = '';
 let cachedDims = 0;
 let cachedInput = 0;

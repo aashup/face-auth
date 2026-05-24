@@ -3,7 +3,12 @@ jest.mock(
   'axios',
   () => ({
     __esModule: true,
-    default: { create: () => ({ post: mockPost }) },
+    default: {
+      create: () => ({
+        post: mockPost,
+        interceptors: { request: { use: jest.fn() }, response: { use: jest.fn() } },
+      }),
+    },
   }),
   { virtual: true },
 );

@@ -12,12 +12,13 @@ import {
 const DIMS = 128;
 const RELAXED = {
   ...DEFAULT_THRESHOLDS,
-  minSharpness:    0,
-  minBrightness:   0,
-  minFaceArea:     0,
-  livenessFrames:  1,   // one analyzing frame is enough in unit tests
-  coarseThreshold: 0,   // disable coarse filter so all candidates reach step 2
-  fineThreshold:   0.5, // same as matchCosine legacy default
+  minSharpness:                0,
+  minBrightness:               0,
+  minFaceArea:                 0,
+  livenessFrames:              1,   // one analyzing frame is enough in unit tests
+  coarseThreshold:             0,   // disable coarse filter so all candidates reach step 2
+  fineThreshold:               0.5, // same as matchCosine legacy default
+  challengeLostFrameTolerance: 0,   // fail on first missing frame for deterministic tests
 };
 
 function makeOptions(over: Partial<PipelineOptions> = {}): PipelineOptions {

@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { hmacSha256, utf8 } from './sha256';
 
+const NS = '[offline-face-auth/SecureKV]';
+
 /**
  * Encrypted, synchronous-read key-value store backed by AsyncStorage.
  *
@@ -49,12 +51,16 @@ export class SecureKV {
 
   set(key: string, value: string): void {
     this.cache.set(key, value);
-    void AsyncStorage.setItem(this.prefix + key, this.encrypt(value));
+    AsyncStorage.setItem(this.prefix + key, this.encrypt(value)).catch((e: unknown) => {
+      console.warn(NS, 'write failed for key', key, e);
+    });
   }
 
   delete(key: string): void {
     this.cache.delete(key);
-    void AsyncStorage.removeItem(this.prefix + key);
+    AsyncStorage.removeItem(this.prefix + key).catch((e: unknown) => {
+      console.warn(NS, 'delete failed for key', key, e);
+    });
   }
 
   // ── HMAC-keystream cipher (nonce ‖ ciphertext, base64) ──────────────────
@@ -103,9 +109,12 @@ export class SecureKV {
 
 function randomBytes(n: number): Uint8Array {
   const b = new Uint8Array(n);
-  const g: any = globalThis as any;
-  if (g.crypto?.getRandomValues) g.crypto.getRandomValues(b);
-  else for (let i = 0; i < n; i++) b[i] = Math.floor(Math.random() * 256);
+  const g = globalThis as { crypto?: { getRandomValues?: (b: Uint8Array) => void } };
+  if (g.crypto?.getRandomValues) {
+    g.crypto.getRandomValues(b);
+  } else {
+    throw new Error(`${NS} crypto.getRandomValues is unavailable — cannot generate a secure nonce`);
+  }
   return b;
 }
 

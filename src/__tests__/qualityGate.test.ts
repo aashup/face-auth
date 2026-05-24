@@ -23,8 +23,11 @@ describe('quality gate', () => {
   });
 
   it('flags off_center', () => {
-    const edge = makeFace({ box: { x: 0.0, y: 0.0, width: 0.25, height: 0.25 } });
-    const r = evaluateQuality({ faces: [edge], frame: makeFrame() }, T);
+    // Bypass minFaceArea so we can isolate the centering check.
+    // Center at (0.025, 0.025) — inside the 0.10 margin → off_center.
+    const T_noArea = { ...T, minFaceArea: 0 };
+    const edge = makeFace({ box: { x: 0.0, y: 0.0, width: 0.05, height: 0.05 } });
+    const r = evaluateQuality({ faces: [edge], frame: makeFrame() }, T_noArea);
     expect(r.issues).toContain('off_center');
   });
 

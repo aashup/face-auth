@@ -52,13 +52,18 @@ function store(): SecureKV {
   return kv;
 }
 
+function sigKey(): Uint8Array {
+  if (!signingKey) throw new Error('[offline-face-auth] audit log not opened — signing key missing');
+  return signingKey;
+}
+
 /** Append a signed, chained event. Returns the stored record. */
 export function append(event: AttendanceEvent): StoredEvent {
   const s = store();
   const prevHash = s.getString(HEAD_KEY) ?? 'GENESIS';
   const canonical = canonicalize(event, prevHash);
   const hash = toHex(sha256(utf8(canonical)));
-  const sig = toHex(hmacSha256(signingKey!, utf8(canonical)));
+  const sig = toHex(hmacSha256(sigKey(), utf8(canonical)));
   const record: StoredEvent = { ...event, prevHash, hash, sig };
 
   s.set(event.id, JSON.stringify(record));
@@ -106,7 +111,7 @@ export function verifyChain(): boolean {
     const { hash, sig, prevHash: _p, ...event } = rec;
     const canonical = canonicalize(event as AttendanceEvent, prevHash);
     if (toHex(sha256(utf8(canonical))) !== hash) return false;
-    if (toHex(hmacSha256(signingKey!, utf8(canonical))) !== sig) return false;
+    if (toHex(hmacSha256(sigKey(), utf8(canonical))) !== sig) return false;
     prevHash = hash;
   }
   return true;

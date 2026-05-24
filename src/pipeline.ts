@@ -55,7 +55,7 @@ export interface PipelineModels {
 export interface PrecomputedFrameData {
   /** Mean luma (0–255) of the face region; replaces frame-based brightness check. */
   brightness?: number;
-  /** Passive-liveness score from the worklet (0 = spoof, 1 = live). */
+  /** Live-face probability from the worklet (0 = spoof, 1 = live). Must be inverted to spoofScore before use. */
   livenessScore?: number;
   /** L2-normalised FaceNet embedding from the worklet; null = not ready yet. */
   embedding?: Float32Array | null;
@@ -209,7 +209,11 @@ export class FaceAuthSession {
 
       // Identify / verify: go through the active challenge for liveness proof.
       this.challenge = new ActiveChallenge(
-        { pool: this.opts.challengePool, timeoutMs: this.opts.challengeTimeoutMs },
+        {
+          pool: this.opts.challengePool,
+          timeoutMs: this.opts.challengeTimeoutMs,
+          thresholds: this.opts.thresholds,
+        },
         Date.now(),
         this.opts.rng,
       );
@@ -277,9 +281,10 @@ export class FaceAuthSession {
       let sampleScore: number;
 
       if (pre?.livenessScore !== undefined) {
-        // Worklet path: worklet already provides a value in [0,1].
-        // The worklet computes spoofScore = 1 - liveScore and sends that value.
-        sampleScore = pre.livenessScore;
+        // Worklet path: worklet sends liveScore (0=spoof, 1=live).
+        // Invert to spoofScore so the gate below is semantically identical to
+        // the JS-side path (finalSpoof >= spoofReject → reject).
+        sampleScore = 1 - pre.livenessScore;
       } else if (frame) {
         // JS-side inference fallback (unit tests / headless mode).
         // Store spoofScore so that finalSpoof = average spoof probability and

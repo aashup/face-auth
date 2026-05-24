@@ -103,7 +103,7 @@ function fuseScores(scores: number[], strategy: FusionStrategy, topK: number): n
     }
     case 'top_k': {
       const k = Math.min(topK, scores.length);
-      // Partial sort — only need the top K elements, not a full sort
+      // Full descending sort; k is typically small (≤ 5) so this is cheap.
       const sorted = scores.slice().sort((a, b) => b - a);
       let s = 0;
       for (let i = 0; i < k; i++) s += sorted[i]!;

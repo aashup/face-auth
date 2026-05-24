@@ -1,20 +1,23 @@
 import { LANDMARK } from './detector';
+import type { Thresholds } from './config';
 import type { DetectedFace } from './types';
 import type { Challenge } from './types';
 
 export interface ChallengeConfig {
   pool: Challenge[];
   timeoutMs: number;
+  /** Gesture + tracking-loss thresholds sourced from the resolved config. */
+  thresholds: Pick<Thresholds,
+    | 'blinkCloseEar'
+    | 'blinkOpenEar'
+    | 'smileRatio'
+    | 'turnYawThreshold'
+    | 'turnReturnThreshold'
+    | 'challengeLostFrameTolerance'
+  >;
 }
 
 type ChallengeState = 'pending' | 'passed' | 'failed';
-
-// Thresholds
-const BLINK_CLOSE_EAR = 0.18;
-const BLINK_OPEN_EAR = 0.22;
-const SMILE_RATIO = 0.72;
-const TURN_YAW_THRESHOLD = 15;
-const TURN_RETURN_THRESHOLD = 5;
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
   const dx = a.x - b.x;
@@ -30,7 +33,12 @@ function eyeAspectRatio(lm: { x: number; y: number }[], ring: readonly number[])
   return (a + b) / (2 * c + 1e-6);
 }
 
-function mouthAspectRatio(lm: { x: number; y: number }[]): number {
+/**
+ * Mouth width-to-height ratio. Unlike EAR (height/width, small=closed),
+ * this is width/height — large when the mouth is open wide in a smile.
+ * Threshold direction: ratio >= smileRatio → smile detected.
+ */
+function mouthWidthRatio(lm: { x: number; y: number }[]): number {
   const w = dist(lm[LANDMARK.mouthLeft]!, lm[LANDMARK.mouthRight]!);
   const h = dist(lm[LANDMARK.mouthTop]!, lm[LANDMARK.mouthBottom]!);
   return w / (h + 1e-6);
@@ -53,14 +61,19 @@ export class ActiveChallenge {
   // turn state machine
   private turnSeenYaw = false;
 
+  // lost-tracking grace window
+  private lostFrameCount = 0;
+
   private readonly startMs: number;
   private readonly timeoutMs: number;
+  private readonly config: ChallengeConfig;
 
   constructor(
     config: ChallengeConfig,
     startMs: number,
     rng: () => number = Math.random,
   ) {
+    this.config = config;
     this.startMs = startMs;
     this.timeoutMs = config.timeoutMs;
     const idx = Math.floor(rng() * config.pool.length);
@@ -81,11 +94,16 @@ export class ActiveChallenge {
       return 'failed';
     }
 
-    // Lost tracking
+    // Lost tracking — allow a short grace window before failing.
     if (face === null) {
-      this._status = 'failed';
-      return 'failed';
+      this.lostFrameCount += 1;
+      if (this.lostFrameCount > this.config.thresholds.challengeLostFrameTolerance) {
+        this._status = 'failed';
+        return 'failed';
+      }
+      return 'pending';
     }
+    this.lostFrameCount = 0;
 
     switch (this.challenge) {
       case 'blink':
@@ -101,18 +119,19 @@ export class ActiveChallenge {
     const lm = face.landmarks;
     const ear =
       (eyeAspectRatio(lm, LANDMARK.leftEye) + eyeAspectRatio(lm, LANDMARK.rightEye)) / 2;
+    const { blinkCloseEar, blinkOpenEar } = this.config.thresholds;
 
-    if (!this.blinkSeenClosed && ear < BLINK_CLOSE_EAR) {
+    if (!this.blinkSeenClosed && ear < blinkCloseEar) {
       this.blinkSeenClosed = true;
-    } else if (this.blinkSeenClosed && ear >= BLINK_OPEN_EAR) {
+    } else if (this.blinkSeenClosed && ear >= blinkOpenEar) {
       this._status = 'passed';
     }
     return this._status;
   }
 
   private feedSmile(face: DetectedFace): ChallengeState {
-    const ratio = mouthAspectRatio(face.landmarks);
-    if (ratio >= SMILE_RATIO) {
+    const ratio = mouthWidthRatio(face.landmarks);
+    if (ratio >= this.config.thresholds.smileRatio) {
       this._status = 'passed';
     }
     return this._status;
@@ -120,9 +139,10 @@ export class ActiveChallenge {
 
   private feedTurn(face: DetectedFace): ChallengeState {
     const yaw = Math.abs(face.headPose.yaw);
-    if (!this.turnSeenYaw && yaw > TURN_YAW_THRESHOLD) {
+    const { turnYawThreshold, turnReturnThreshold } = this.config.thresholds;
+    if (!this.turnSeenYaw && yaw > turnYawThreshold) {
       this.turnSeenYaw = true;
-    } else if (this.turnSeenYaw && yaw < TURN_RETURN_THRESHOLD) {
+    } else if (this.turnSeenYaw && yaw < turnReturnThreshold) {
       this._status = 'passed';
     }
     return this._status;

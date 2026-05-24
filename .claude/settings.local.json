@@ -5,7 +5,9 @@
       "PowerShell(tail -5)",
       "PowerShell(Get-ChildItem \"D:\\\\erp\\\\face-recognition\" | Where-Object { $_.Name -match \"\\\\.pptx$|make_pptx\" } | Select-Object Name, @{N='Size';E={\"{0:N0} KB\" -f \\($_.Length/1KB\\)}}, LastWriteTime)",
       "Bash(adb devices *)",
-      "Bash(adb shell *)"
+      "Bash(adb shell *)",
+      "Bash(npm test *)",
+      "Bash(npm run *)"
     ]
   }
 }

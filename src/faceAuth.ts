@@ -53,6 +53,8 @@ function emitStatus(patch: Partial<SyncStatus>): void {
 }
 
 async function init(config: FaceAuthConfig): Promise<void> {
+  // Guard against double-init: tear down cleanly before re-initialising.
+  if (isInitialized()) await dispose();
   const resolved = setConfig(config);
   deviceId = config.deviceId ?? 'unknown-device';
   getAttestationToken = config.getAttestationToken;
@@ -222,9 +224,10 @@ async function checkDuplicate(
 /** Persist one auth attempt as a signed, chained attendance event. */
 function recordAttendance(result: AuthResult): void {
   requireReady();
+  const now = Date.now();
   const event: AttendanceEvent = {
-    id: `${deviceId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    ts: Date.now(),
+    id: `${deviceId}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    ts: now,
     personnelId: result.personnelId,
     ok: result.ok,
     matchScore: result.matchScore,

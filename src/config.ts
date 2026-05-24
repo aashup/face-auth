@@ -101,6 +101,25 @@ export interface Thresholds {
    * Ignored when `fusionStrategy` is not `'top_k'`.  Default 3.
    */
   topK: number;
+
+  // ── Active-challenge gesture thresholds ──────────────────────────────────
+
+  /** Eye-aspect-ratio below which an eye is registered as closed (blink start). */
+  blinkCloseEar: number;
+  /** Eye-aspect-ratio at or above which the eye is re-registered as open (blink end). */
+  blinkOpenEar: number;
+  /** Mouth-width-to-height ratio at or above which a smile is registered. */
+  smileRatio: number;
+  /** Minimum absolute yaw (°) before a head turn is registered. */
+  turnYawThreshold: number;
+  /** Maximum absolute yaw (°) to register the head returning to center after a turn. */
+  turnReturnThreshold: number;
+  /**
+   * Number of consecutive frames with no detected face that are tolerated before
+   * the active challenge fails. 0 = fail on the very first missing frame (old behaviour).
+   * Default 3 — absorbs momentary occlusions without ending the session.
+   */
+  challengeLostFrameTolerance: number;
 }
 
 export interface FaceAuthConfig {
@@ -174,6 +193,13 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   templateFrameCount: 3,
   fusionStrategy:     'top_k',
   topK:               3,
+  // Active-challenge gesture thresholds
+  blinkCloseEar:               0.18,
+  blinkOpenEar:                0.22,
+  smileRatio:                  0.72,
+  turnYawThreshold:            15,
+  turnReturnThreshold:         5,
+  challengeLostFrameTolerance: 3,
 };
 
 export const DEFAULT_CONFIG: {
