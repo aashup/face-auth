@@ -2,6 +2,13 @@
 
 Offline facial recognition + liveness detection for React Native, built for **field-personnel attendance** on mid-range phones. Fully on-device matching, open-source models, and an AWS **sync-and-purge** pipeline.
 
+![npm](https://img.shields.io/npm/v/react-native-offline-face-auth)
+![license](https://img.shields.io/badge/license-MIT-green)
+![platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue)
+![offline](https://img.shields.io/badge/network-offline--first-orange)
+
+> **Keywords:** react-native face recognition · facial authentication · liveness detection · anti-spoofing · on-device ML · offline biometrics · TFLite · BlazeFace · FaceNet · MiniFASNet · face embedding · attendance tracking · field personnel · biometric authentication · edge ML · vision camera · encrypted storage · hardware security · AWS sync
+
 ---
 
 ## Features
@@ -24,6 +31,38 @@ Offline facial recognition + liveness detection for React Native, built for **fi
 | [config.md](config.md) | Full configuration reference — all fields, thresholds, and tuning guidance |
 | [CLAUDE.md](CLAUDE.md) | Contributor & AI guide — patterns, invariants, commands |
 | [models/README.md](models/README.md) | Model provenance and licenses |
+
+---
+
+## Preview
+
+| Home Screen | Enrollment Dialog | Camera / Face Guide |
+|:-----------:|:-----------------:|:-------------------:|
+| ![Home screen](screenshots/screenshot_20260524_202829.png) | ![Enrollment dialog](screenshots/screenshot_20260524_202855.png) | ![Camera view with face guide](screenshots/screenshot_20260524_202959.png) |
+| Main menu — templates enrolled, pending sync visible | "Enter Person ID / Name" before capture starts | Live camera + oval guide overlay · quality gate hint |
+
+---
+
+## Bundled Models
+
+5 TFLite models ship inside the package. All run on the **CPU (XNNPACK delegate)** — no GPU required.
+
+| # | Model | File | Size | License | Role in pipeline |
+|---|-------|------|------|---------|-----------------|
+| 1 | **BlazeFace** | `blazeface.tflite` | ~0.5 MB | Apache-2.0 | Face detection — bounding box + confidence, runs every frame |
+| 2 | **Face Mesh** | `face_mesh.tflite` | ~3.0 MB | Apache-2.0 | 468 landmark points + head pose (yaw / pitch / roll) |
+| 3 | **FaceNet-512** | `facenet_512.tflite` | ~4.0 MB | Apache-2.0 / MIT | 512-dimensional face embedding for identity matching |
+| 4 | **MiniFASNet 2.7×** | `spoof_2_7.tflite` | ~1.0 MB | Apache-2.0 | Passive liveness — texture-scale spoof detection (prints, screens) |
+| 5 | **MiniFASNet 4.0×** | `spoof_4_0.tflite` | ~1.0 MB | Apache-2.0 | Passive liveness — geometry-scale spoof detection (3D masks, replays) |
+| | **Total** | | **~9.5 MB** | | |
+
+**Pipeline role per model:**
+- **BlazeFace** — lightweight, runs on every frame (~25 ms). Triggers the rest of the pipeline only when a face is detected.
+- **Face Mesh** — heavier (~40 ms), only runs during `challenge` and `analyzing` stages to save CPU.
+- **MiniFASNet ×2** — both branches run together during `analyzing`; their `live_score` outputs are averaged across 4 frames for a stable spoof decision.
+- **FaceNet** — runs during `analyzing` to produce the probe embedding. L2-normalized 512-d vector enables fast cosine matching.
+
+> SHA-256 digests for all five files are in [`models/manifest.json`](models/manifest.json) and verified on every `FaceAuth.init()` call when `readModelBytes` is supplied.
 
 ---
 

@@ -44,6 +44,15 @@ const config = {
   projectRoot: __dirname,
   watchFolders: [root],
   resolver: {
+    // Never watch Android / iOS build artefacts — Metro crashes on Windows when
+    // Gradle deletes and recreates these directories mid-build (ENOENT on watch).
+    blockList: [
+      /.*\/android\/\.gradle\/.*/,
+      /.*\/android\/app\/build\/.*/,
+      /.*\/android\/build\/.*/,
+      /.*\/ios\/build\/.*/,
+      /.*\/ios\/Pods\/.*/,
+    ],
     // fast-tflite loads models via require(...) — register the asset extension.
     assetExts: [...defaultConfig.resolver.assetExts, 'tflite'],
 
