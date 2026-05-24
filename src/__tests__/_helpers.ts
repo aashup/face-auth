@@ -66,15 +66,15 @@ export function stubModel(output: Float32Array): TfliteModel {
 /**
  * Liveness branch stub.
  *
- * `decodeLiveProb` in liveness.ts treats **index 0** as the real/live class.
- * The stub therefore puts the live logit at index 0; indices 1–2 are spoof
- * classes set to 0.
+ * MiniFASNet class ordering: [fake_2d, fake_3d, real] — index 2 is real/live.
+ * Confirmed by device logits: idx0≈-3.17, idx1≈-0.74, idx2≈+3.91 for a real face.
+ * The stub puts the live logit at index 2; indices 0 and 1 are spoof classes set to 0.
  *
  *   liveLogit > 0  → large live-class logit → liveScore ≈ 1 → spoofScore ≈ 0 → passes
  *   liveLogit < 0  → small live-class logit → liveScore ≈ 0 → spoofScore ≈ 1 → rejected
  */
 export function livenessStub(liveLogit: number): TfliteModel {
-  return stubModel(new Float32Array([liveLogit, 0, 0]));
+  return stubModel(new Float32Array([0, 0, liveLogit]));
 }
 
 /** Make a normalized embedding deterministically from a seed. */

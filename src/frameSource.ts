@@ -405,28 +405,24 @@ function wDecodeFaceMesh(
 }
 
 /**
- * MiniFASNet: output [real, fake_2d, fake_3d].  Index 0 is the live class.
- *
- * NOTE on class ordering: the bundled spoof_2_7.tflite / spoof_4_0.tflite models
- * output [real, fake] or [real, fake_2d, fake_3d] — NOT the [fake_2d, real, fake_3d]
- * ordering described in some versions of the Silent-Face paper. Device testing
- * confirmed: index 0 ≈ 0.94 for a live face, index 1 ≈ 0.05.
+ * MiniFASNet output class ordering for bundled spoof_2_7.tflite / spoof_4_0.tflite:
+ *   [fake_2d, fake_3d, real]  — index 2 is the live/real class.
+ * Confirmed by device logits: index 0 ≈ -3.17, index 1 ≈ -0.74, index 2 ≈ +3.91 for a real face.
  *
  * Detects whether softmax is already baked into the TFLite graph by checking
- * if the values sum to ~1.0.  If so, returns index 0 directly — applying
+ * if the values sum to ~1.0.  If so, returns index 2 directly — applying
  * softmax again would heavily squash the probabilities and destroy accuracy.
- * Falls back to manual softmax only when raw logits are present.
+ * Falls back to manual softmax when raw logits are present.
  */
 function wDecodeLiveness(raw: Float32Array | Int32Array | Uint8Array): number {
   'worklet';
   const r = raw as Float32Array;
-  if (r.length < 1) return 0;
+  if (r.length < 3) return 0;
 
   // If the model already applied softmax, values sum to ~1.0.
-  // Tolerance of ±0.05 handles float32 rounding across model variants.
   const sumCheck = (r[0] ?? 0) + (r[1] ?? 0) + (r[2] ?? 0);
   if (Math.abs(sumCheck - 1.0) < 0.05) {
-    return r[0] ?? 0;  // index 0 = real/live — return directly
+    return r[2] ?? 0;  // index 2 = real/live
   }
 
   // Raw logits path: apply softmax manually (numerically stable via max subtraction).
@@ -439,7 +435,7 @@ function wDecodeLiveness(raw: Float32Array | Int32Array | Uint8Array): number {
     exps.push(e);
     sum += e;
   }
-  return sum > 0 ? (exps[0] ?? 0) / sum : 0;  // index 0 = real/live
+  return sum > 0 ? (exps[2] ?? 0) / sum : 0;  // index 2 = real/live
 }
 
 /**

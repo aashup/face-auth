@@ -168,20 +168,25 @@ export function FaceAuthView({
         return;
       }
 
-      // DEBUG: log raw liveness tensor once when we first enter analyzing stage.
-      if (__DEV__ && !livenessRawLoggedRef.current && stageRef.current === 'analyzing') {
+      // Always-on: log the first frame where liveness models actually ran (livenessRaw non-empty).
+      if (!livenessRawLoggedRef.current && result.livenessRaw.length > 0) {
         livenessRawLoggedRef.current = true;
         const sep = result.livenessRaw.indexOf(-1);
-        const b0  = sep >= 0 ? result.livenessRaw.slice(0, sep)       : result.livenessRaw;
-        const b1  = sep >= 0 ? result.livenessRaw.slice(sep + 1)      : [];
+        const b0  = sep >= 0 ? result.livenessRaw.slice(0, sep)  : result.livenessRaw;
+        const b1  = sep >= 0 ? result.livenessRaw.slice(sep + 1) : [];
         const fmt = (arr: number[]) =>
-          arr.map((v, i) => `[${i}]=${v.toFixed(4)}`).join('  ');
-        log('[LivenessDebug] branch0 raw values:', fmt(b0));
-        log('[LivenessDebug] branch1 raw values:', fmt(b1));
-        log(
-          '[LivenessDebug] interpretation: reading index 0 as live (real class).',
-          `branch0 idx0=${b0[0]?.toFixed(4)} idx1=${b0[1]?.toFixed(4)} idx2=${b0[2]?.toFixed(4) ?? 'N/A'}`,
+          arr.length ? arr.map((v, i) => `[${i}]=${v.toFixed(4)}`).join('  ') : '(empty)';
+        console.log('[LivenessDebug] branch0 ALL raw values:', fmt(b0));
+        console.log('[LivenessDebug] branch1 ALL raw values:', fmt(b1));
+        console.log(
+          `[LivenessDebug] currently reading index 1 as live.` +
+          ` b0: idx0=${b0[0]?.toFixed(4)} idx1=${b0[1]?.toFixed(4)} idx2=${b0[2]?.toFixed(4) ?? 'N/A'}` +
+          ` b1: idx0=${b1[0]?.toFixed(4)} idx1=${b1[1]?.toFixed(4)} idx2=${b1[2]?.toFixed(4) ?? 'N/A'}`,
         );
+      }
+      // Warn if analyzing but liveness never ran this frame (needsLiveness may not have fired yet).
+      if (stageRef.current === 'analyzing' && result.livenessRaw.length === 0) {
+        console.log('[LivenessDebug] analyzing frame but livenessRaw empty — needsLiveness not yet true');
       }
 
       // Reconstruct Point[] landmarks from flat [x0,y0,x1,y1,...] array.
@@ -205,7 +210,9 @@ export function FaceAuthView({
       };
       await feed(null, [face], {
         brightness: result.brightness,
-        livenessScore: result.livenessScore,
+        // Only pass livenessScore when the models actually ran (livenessRaw non-empty).
+        // A default 0 from a frame where needsLiveness was still false is not a real measurement.
+        livenessScore: result.livenessRaw.length > 0 ? result.livenessScore : undefined,
         embedding: result.embedding ? new Float32Array(result.embedding) : null,
       });
     },

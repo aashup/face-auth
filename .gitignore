@@ -5,3 +5,6 @@ lib/
 example/ios/Pods/
 example/android/.gradle/
 example/android/app/build/
+
+# Claude Code
+.claude/

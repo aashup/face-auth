@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import Svg, { Defs, Rect, Mask, Ellipse, Text as SvgText } from 'react-native-svg';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
+import Svg, { Path, Ellipse, Text as SvgText } from 'react-native-svg';
 
 // ─── Oval geometry (must match the cutout below) ─────────────────────────────
 // cx="50%", cy="45%" in SVG space.  Arrow offset from oval centre in pixels.
@@ -41,43 +41,65 @@ function getArrows(pos: { cx: number; cy: number } | null): string {
 }
 
 export function FaceMaskOverlay({ centered, facePos }: FaceMaskOverlayProps) {
+  const { width, height } = useWindowDimensions();
+
+  // Oval centre in pixels (must match cx="50%" cy="45%" used for the border ellipse)
+  const cx = width  * 0.5;
+  const cy = height * 0.45;
+
   // ── Oval stroke style based on centering status ──────────────────────────
   const strokeColor =
     centered === true  ? 'rgba(34,197,94,0.95)'  :  // green  — centred
     centered === false ? 'rgba(239,68,68,0.85)'   :  // red    — off-centre
-                        'rgba(255,255,255,0.5)';     // white  — no face
+                        'rgba(255,255,255,0.7)';     // white  — no face / waiting
 
-  const strokeWidth   = centered === true ? 3 : 2;
-  const strokeDash    = centered === true ? undefined : '8,8';
+  const strokeWidth = centered === true ? 3 : 2;
+  const strokeDash  = centered === true ? undefined : '8,6';
 
   // ── Directional arrows / checkmark ───────────────────────────────────────
   const arrowText = centered === false ? getArrows(facePos) : '';
   const showCheck = centered === true;
 
+  // ── Compound path: full-screen rect  ∪  ellipse, filled with evenodd rule ─
+  //
+  // fillRule="evenodd" makes the overlapping ellipse region count as "outside"
+  // (even winding) → transparent → camera shows through.  The surrounding rect
+  // area counts as "inside" (odd winding) → gets the dark fill.
+  //
+  // This replaces the SVG <Mask> approach which fails to apply on the very first
+  // render on Android (react-native-svg bug), causing the oval to appear as a
+  // solid white shape until the component re-renders.
+  //
+  // Ellipse arc in SVG path notation:
+  //   M (cx-rx) cy  — start at left edge of ellipse
+  //   A rx ry 0 1 0 (cx+rx) cy  — large arc to right edge (top half)
+  //   A rx ry 0 1 0 (cx-rx) cy  — large arc back to left edge (bottom half)
+  //   Z
+  const overlayPath = [
+    `M 0 0 H ${width} V ${height} H 0 Z`,
+    `M ${cx - OVAL_RX} ${cy}`,
+    `A ${OVAL_RX} ${OVAL_RY} 0 1 0 ${cx + OVAL_RX} ${cy}`,
+    `A ${OVAL_RX} ${OVAL_RY} 0 1 0 ${cx - OVAL_RX} ${cy}`,
+    `Z`,
+  ].join(' ');
+
   return (
-    // pointerEvents="none" is critical so the overlay doesn't block UI touches.
+    // pointerEvents="none" is critical so the overlay never blocks camera touches.
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg height="100%" width="100%">
-        <Defs>
-          <Mask id="face-hole">
-            {/* White = visible, black = punched-out hole */}
-            <Rect x="0" y="0" width="100%" height="100%" fill="white" />
-            <Ellipse cx="50%" cy="45%" rx={OVAL_RX} ry={OVAL_RY} fill="black" />
-          </Mask>
-        </Defs>
 
-        {/* Dark overlay with the face oval cut out */}
-        <Rect
-          x="0" y="0" width="100%" height="100%"
-          fill="rgba(0,0,0,0.6)"
-          mask="url(#face-hole)"
+        {/* Dark overlay with oval punched out — reliable on first render */}
+        <Path
+          d={overlayPath}
+          fill="rgba(0,0,0,0.60)"
+          fillRule="evenodd"
         />
 
-        {/* Oval border — colour and style reflect centering status */}
+        {/* Oval border — colour and dash reflect centering status */}
         <Ellipse
-          cx="50%" cy="45%"
+          cx={cx} cy={cy}
           rx={OVAL_RX} ry={OVAL_RY}
-          fill="transparent"
+          fill="none"
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={strokeDash}
@@ -86,7 +108,7 @@ export function FaceMaskOverlay({ centered, facePos }: FaceMaskOverlayProps) {
         {/* ✓ checkmark when centred */}
         {showCheck && (
           <SvgText
-            x="50%" y="45%"
+            x={cx} y={cy}
             textAnchor="middle"
             alignmentBaseline="central"
             fontSize={52}
@@ -99,7 +121,7 @@ export function FaceMaskOverlay({ centered, facePos }: FaceMaskOverlayProps) {
         {/* Directional arrows when off-centre */}
         {!showCheck && arrowText !== '' && (
           <SvgText
-            x="50%" y="45%"
+            x={cx} y={cy}
             textAnchor="middle"
             alignmentBaseline="central"
             fontSize={40}
@@ -108,6 +130,7 @@ export function FaceMaskOverlay({ centered, facePos }: FaceMaskOverlayProps) {
             {arrowText}
           </SvgText>
         )}
+
       </Svg>
     </View>
   );

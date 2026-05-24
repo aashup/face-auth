@@ -95,8 +95,12 @@ export class FaceAuthSession {
   private stage: Stage = 'gating';
   private goodGateFrames = 0;
   private challenge: ActiveChallenge | null = null;
-  /** Per-frame liveness scores collected during the analyzing stage. */
-  private livenessScores: number[] = [];
+  /**
+   * Per-frame **spoof** probabilities (0 = definitely live, 1 = definitely spoof).
+   * Renamed from `livenessScores` to prevent the semantic confusion where high
+   * "liveness score" was actually a high spoof probability.
+   */
+  private spoofSamples: number[] = [];
   private embeddings: Float32Array[] = [];
   private lastLog = 0;
   private readonly gateFrames: number;
@@ -107,10 +111,15 @@ export class FaceAuthSession {
     return this.opts.thresholds.livenessFrames ?? 4;
   }
 
-  /** Running average of all collected liveness scores (0 = spoof, 1 = live). */
-  private get livenessScore(): number {
-    const s = this.livenessScores;
+  /** Running average spoof probability (0 = live, 1 = spoof). Used for the gate check. */
+  private get avgSpoofScore(): number {
+    const s = this.spoofSamples;
     return s.length ? s.reduce((a, b) => a + b, 0) / s.length : 0;
+  }
+
+  /** Live probability for result reporting (0 = spoof, 1 = live — intuitive direction). */
+  private get avgLiveScore(): number {
+    return 1 - this.avgSpoofScore;
   }
 
   /** Build `MultiFrameMatchConfig` from the resolved `Thresholds`. */
@@ -179,7 +188,7 @@ export class FaceAuthSession {
     return this.finish({
       ok: false,
       matchScore: 0,
-      livenessScore: this.livenessScore,
+      livenessScore: this.avgLiveScore,
       challengePassed: this.challenge?.status === 'passed',
       failureReason: 'cancelled',
     });
@@ -239,7 +248,7 @@ export class FaceAuthSession {
       return this.finish({
         ok: false,
         matchScore: 0,
-        livenessScore: this.livenessScore,
+        livenessScore: this.avgLiveScore,
         challengePassed: false,
         failureReason: 'challenge_failed',
       });
@@ -277,51 +286,59 @@ export class FaceAuthSession {
     const face = largestFace(faces);
 
     // ── Passive liveness: collect livenessFrames samples, then decide ────────
-    if (this.livenessScores.length < this.livenessFrames) {
-      let sampleScore: number;
+    if (this.spoofSamples.length < this.livenessFrames) {
+      let spoofScore: number;
+      let liveScore: number;
 
       if (pre?.livenessScore !== undefined) {
-        // Worklet path: worklet sends liveScore (0=spoof, 1=live).
-        // Invert to spoofScore so the gate below is semantically identical to
-        // the JS-side path (finalSpoof >= spoofReject → reject).
-        sampleScore = 1 - pre.livenessScore;
+        // Worklet path: pre.livenessScore is the live-face probability (0=spoof, 1=live).
+        // Invert to spoofScore for the gate comparison.
+        liveScore  = pre.livenessScore;
+        spoofScore = 1 - liveScore;
       } else if (frame) {
         // JS-side inference fallback (unit tests / headless mode).
-        // Store spoofScore so that finalSpoof = average spoof probability and
-        // the check `finalSpoof >= spoofReject` is semantically correct.
         const lv = await checkLiveness(frame, face, this.models.liveness, this.opts.thresholds.spoofReject);
-        sampleScore = lv.spoofScore;
+        liveScore  = lv.liveScore;
+        spoofScore = lv.spoofScore;
       } else {
         return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
       }
-      this.livenessScores.push(sampleScore);
-      const n      = this.livenessScores.length;
-      const runAvg = this.livenessScore;
 
-      dbg(
-        `liveness sample ${n}/${this.livenessFrames}: ` +
-        `spoof=${f2(sampleScore)} live=${f2(1 - sampleScore)} ` +
-        `runningAvg=${f2(runAvg)} threshold=${f2(this.opts.thresholds.spoofReject)}`,
+      this.spoofSamples.push(spoofScore);
+      const n           = this.spoofSamples.length;
+      const runSpoof    = this.avgSpoofScore;
+      const threshold   = this.opts.thresholds.spoofReject;
+
+      // Always-on log: visible regardless of debug flag so liveness can be tuned in production.
+      console.log(
+        `[FaceAuth/Liveness] sample ${n}/${this.livenessFrames}` +
+        ` | liveScore=${f2(liveScore)} spoofScore=${f2(spoofScore)}` +
+        ` | runAvgSpoof=${f2(runSpoof)} threshold=${f2(threshold)}`,
       );
 
       if (n < this.livenessFrames) {
         return { stage: 'analyzing', guidance: { message: 'Verifying…' }, done: false };
       }
 
-      const finalAvg   = runAvg;
-      const finalSpoof = finalAvg;
-      dbg(
-        `liveness FINAL: samples=[${this.livenessScores.map(f2).join(', ')}] ` +
-        `avg=${f2(finalAvg)} spoofAvg=${f2(finalSpoof)} ` +
-        `${finalSpoof >= this.opts.thresholds.spoofReject ? 'REJECTED' : 'PASSED'}`,
+      const finalSpoofAvg = runSpoof;
+      const finalLiveAvg  = 1 - finalSpoofAvg;
+      const rejected      = finalSpoofAvg >= threshold;
+
+      // Always-on final decision log.
+      console.log(
+        `[FaceAuth/Liveness] FINAL` +
+        ` | samples(spoof)=[${this.spoofSamples.map(f2).join(', ')}]` +
+        ` | avgSpoof=${f2(finalSpoofAvg)} avgLive=${f2(finalLiveAvg)}` +
+        ` | threshold=${f2(threshold)}` +
+        ` | ${rejected ? 'REJECTED (spoof detected)' : 'PASSED (live face)'}`,
       );
 
-      if (finalSpoof >= this.opts.thresholds.spoofReject) {
+      if (rejected) {
         this.stage = 'done';
         return this.finish({
           ok: false,
           matchScore: 0,
-          livenessScore: finalAvg,
+          livenessScore: finalLiveAvg,   // report as live score (0=spoof, 1=live)
           challengePassed: true,
           failureReason: 'liveness_failed',
         });
@@ -354,7 +371,7 @@ export class FaceAuthSession {
       return this.finish({
         ok: true,
         matchScore: 1,
-        livenessScore: this.livenessScore,
+        livenessScore: this.avgLiveScore,
         challengePassed: true,
         embeddingB64: embeddingToBase64(averaged),
       });
@@ -365,7 +382,7 @@ export class FaceAuthSession {
       return this.finish({
         ok: false,
         matchScore: 0,
-        livenessScore: this.livenessScore,
+        livenessScore: this.avgLiveScore,
         challengePassed: true,
         failureReason: 'no_template',
       });
@@ -394,7 +411,7 @@ export class FaceAuthSession {
         ok: v.ok,
         personnelId: v.ok ? this.opts.personnelId : undefined,
         matchScore: safeScore,
-        livenessScore: this.livenessScore,
+        livenessScore: this.avgLiveScore,
         challengePassed: true,
         failureReason: v.ok ? undefined : (noTemplate ? 'no_template' : 'no_match'),
       });
@@ -412,7 +429,7 @@ export class FaceAuthSession {
       ok: match !== null,
       personnelId: match?.personnelId,
       matchScore: match?.score ?? 0,
-      livenessScore: this.livenessScore,
+      livenessScore: this.avgLiveScore,
       challengePassed: true,
       failureReason: match ? undefined : 'no_match',
     });

@@ -210,9 +210,9 @@ export const DEFAULT_CONFIG: {
   templateTtlMs: number;
 } = {
   challenges: ['blink', 'smile', 'turn_head'],
-  syncIntervalMs: 5 * 60 * 1000,
+  syncIntervalMs: 30 * 60 * 1000,
   purgeAfterSync: true,
-  challengeTimeoutMs: 10 * 60 * 1000,
+  challengeTimeoutMs: 3 * 60 * 1000,
   templateTtlMs: 7 * 24 * 60 * 60 * 1000,
 };
 
