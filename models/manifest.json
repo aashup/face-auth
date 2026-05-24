@@ -1,0 +1,43 @@
+{
+  "blazeface.tflite": {
+    "sha256": "3bc182eb9f33925d9e58b5c8d59308a760f4adea8f282370e428c51212c26633",
+    "version": "1.0.0",
+    "input": [
+      128,
+      128
+    ]
+  },
+  "face_mesh.tflite": {
+    "sha256": "1055cb9d4a9ca8b8c688902a3a5194311138ba256bcc94e336d8373a5f30c814",
+    "version": "1.0.0",
+    "input": [
+      192,
+      192
+    ]
+  },
+  "facenet_512.tflite": {
+    "sha256": "f0dede2fdf5fd10248aad1d85393d2d40e3494464440bd8fccb2c957baa430b7",
+    "version": "1.0.0",
+    "input": [
+      160,
+      160
+    ],
+    "dims": 512
+  },
+  "spoof_2_7.tflite": {
+    "sha256": "5d573d20b795a19d7b2a0f67cc4c1130ce8ec30d5f6aa06b2c788a344a49d4dd",
+    "version": "1.0.0",
+    "input": [
+      80,
+      80
+    ]
+  },
+  "spoof_4_0.tflite": {
+    "sha256": "32eecfa06cd0cf3c514276fb8521ed820fc256bacf4c616a1f05612d1c156463",
+    "version": "1.0.0",
+    "input": [
+      80,
+      80
+    ]
+  }
+}

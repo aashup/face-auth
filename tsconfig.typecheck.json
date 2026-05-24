@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": []
+  },
+  "include": [
+    "types/peer-stubs.d.ts",
+    "src/types.ts",
+    "src/config.ts",
+    "src/runtime.ts",
+    "src/detector.ts",
+    "src/qualityGate.ts",
+    "src/embeddings.ts",
+    "src/liveness.ts",
+    "src/matcher.ts",
+    "src/activeChallenge.ts",
+    "src/pipeline.ts",
+    "src/faceAuth.ts",
+    "src/secure/**/*.ts",
+    "src/sync/**/*.ts"
+  ]
+}
