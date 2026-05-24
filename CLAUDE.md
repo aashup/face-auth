@@ -1,5 +1,9 @@
 # CLAUDE.md — Contributor & AI Guide
 
+> **At the start of every session, read the persistent developer memory file before doing anything else:**
+> `C:\Users\xtrox\.claude\projects\D--erp-face-recognition\memory\developer.md`
+> It contains the authoritative architecture reference, confirmed model class orderings, fixed bugs, security invariants, and test coverage notes accumulated across sessions.
+
 This file helps Claude (and human contributors) work effectively on `react-native-offline-face-auth` — an offline-first React Native package for facial recognition and attendance tracking.
 
 ---
