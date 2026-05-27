@@ -41,6 +41,8 @@ Offline facial recognition + liveness detection for React Native, built for **fi
 | ![Home screen](screenshots/screenshot_20260524_202829.png) | ![Enrollment dialog](screenshots/screenshot_20260524_202855.png) | ![Camera view with face guide](screenshots/screenshot_20260524_202959.png) |
 | Main menu — templates enrolled, pending sync visible | "Enter Person ID / Name" before capture starts | Live camera + oval guide overlay · quality gate hint |
 
+### Sample app apk file
+- Click here to download [Sample App](https://drive.google.com/file/d/1IjkftNMcIXbm051clBDCcsTKcEkylKs_/view?usp=sharing)
 ---
 
 ## Bundled Models
