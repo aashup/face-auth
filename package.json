@@ -4,7 +4,7 @@
   "description": "Offline facial recognition + liveness detection for React Native field-personnel attendance. Fully on-device, open-source models, AWS sync-and-purge.",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
-  "types": "lib/typescript/src/index.d.ts",
+  "types": "lib/typescript/index.d.ts",
   "react-native": "src/index.ts",
   "source": "src/index.ts",
   "files": [
@@ -12,7 +12,8 @@
     "lib",
     "android",
     "ios",
-    "models",
+    "models/manifest.json",
+    "models/README.md",
     "react-native-offline-face-auth.podspec",
     "!**/__tests__",
     "!**/.*"

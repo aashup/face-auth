@@ -1,0 +1,24 @@
+# ── Development / CI ──────────────────────────────────────────────────────────
+.github/
+.vscode/
+__mocks__/
+src/__tests__/
+*.test.ts
+*.spec.ts
+
+# ── Example app (not needed by library consumers) ─────────────────────────────
+example/
+
+# ── Mock backend ──────────────────────────────────────────────────────────────
+server/
+
+# ── TFLite models ─────────────────────────────────────────────────────────────
+# Models are large binary files (60 MB total) and must be bundled by the host
+# app, not downloaded as part of the npm package.
+# Download instructions: see models/README.md on GitHub.
+models/*.tflite
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+.claude/
+*.log
+.env*
